@@ -1,0 +1,174 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  aws-backup-rotator
+  
+  Sample SAM Template for aws-backup-rotator
+
+# More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
+Globals:
+  Function:
+    Timeout: 5
+
+Parameters:
+  BackupSNSTopicARNParameter:
+    Type: String
+    Description: The ARN for a previously existing SNS topic to which AWS Backup publishes its notifications. The Step Function will subscribe to this topic and begin execution when a "BACKUP_JOB_COMPLETED" notification is published.
+
+Resources:
+  AWSBackupSNSSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt [ StartStateMachineFunction, Arn ]
+      FilterPolicy: 
+        |-
+        {
+          "BackupVaultEvents": [
+            "BACKUP_JOB_COMPLETED"
+          ]
+        }
+      Protocol: lambda
+      TopicArn:
+        Ref: BackupSNSTopicARNParameter
+  
+  SNSLambdaInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      Principal: sns.amazonaws.com
+      SourceArn:
+        Ref: BackupSNSTopicARNParameter
+      FunctionName:
+        !GetAtt StartStateMachineFunction.Arn
+
+  StartStateMachineFunction:
+    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+    Properties:
+      CodeUri: ./bin/start-workflow/
+      Handler: start-workflow
+      Role:
+        !GetAtt StartStateMachineFunctionRole.Arn
+      Runtime: go1.x
+      Tracing: Active # https://docs.aws.amazon.com/lambda/latest/dg/lambda-x-ray.html
+
+  DynamoDBCloneRotator:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      DefinitionString:
+        !Sub
+          - |-
+            {
+              "Comment": "The DynamoDB Clone Rotator creates a DynamoDB table from a backup created by AWS Backup.",
+              "StartAt": "Restore Backup",
+              "States": {
+                "Restore Backup": {
+                  "Type": "Task",
+                  "Resource": "${restoreBackupArn}",
+                  "InputPath": "$.BackupEvent",
+                  "ResultPath": "$.RestoreDynamoDBTableOutput",
+                  "Next": "Complete"
+                },
+                "Complete": {
+                  "Type": "Succeed"
+                }
+              }
+            }
+          - {
+              restoreBackupArn:
+                !GetAtt RestoreBackupFunction.Arn
+            }
+      RoleArn:
+        !GetAtt StatesExecutionRole.Arn
+      StateMachineName: DynamoDBCloneRotator
+  
+  RestoreBackupFunction:
+    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+    Properties:
+      CodeUri: ./bin/restore-backup/
+      Handler: restore-backup
+      Role:
+        !GetAtt RestoreBackupFunctionRole.Arn
+      Runtime: go1.x
+      Tracing: Active # https://docs.aws.amazon.com/lambda/latest/dg/lambda-x-ray.html
+
+# IAM Roles
+  StartStateMachineFunctionRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - !Sub lambda.amazonaws.com
+            Action: "sts:AssumeRole"
+      Path: "/"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AWSXrayWriteOnlyAccess
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: StartStateMachineFunctionExecutionPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "states:StartExecution"
+                Resource:
+                  - Ref: DynamoDBCloneRotator
+
+  StatesExecutionRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - !Sub states.${AWS::Region}.amazonaws.com
+            Action: "sts:AssumeRole"
+      Path: "/"
+      Policies:
+        - PolicyName: DynamoDBCloneRotatorStatesExecutionPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "lambda:InvokeFunction"
+                Resource: 
+                  - !GetAtt RestoreBackupFunction.Arn
+  
+  RestoreBackupFunctionRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - !Sub lambda.amazonaws.com
+            Action: "sts:AssumeRole"
+      Path: "/"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AWSXrayWriteOnlyAccess
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: RestoreBackupFunctionExecutionPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "dynamodb:RestoreTableFromBackup"
+                Resource:
+                  - "*"
+
+Outputs:
+  StartStateMachineFunction:
+    Description: "StartStateMachine Lambda Function ARN"
+    Value:
+      !GetAtt StartStateMachineFunction.Arn
