@@ -168,7 +168,14 @@ Resources:
             Statement:
               - Effect: Allow
                 Action:
+                  - "dynamodb:BatchWriteItem"
+                  - "dynamodb:DeleteItem"
+                  - "dynamodb:GetItem"
+                  - "dynamodb:PutItem"
+                  - "dynamodb:Query"
                   - "dynamodb:RestoreTableFromBackup"
+                  - "dynamodb:Scan"
+                  - "dynamodb:UpdateItem"
                 Resource:
                   - "*"
 

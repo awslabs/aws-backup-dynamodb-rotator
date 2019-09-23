@@ -18,7 +18,7 @@ import (
 type (
 	// SnsMessage is one message published by SNS
 	SnsMessage struct {
-		Message           string            `json:Message`
+		Message           string            `json:"Message"`
 		MessageAttributes map[string]string `json:"MessageAttributes"`
 		MessageID         string            `json:"MessageId"`
 		Signature         string            `json:"Signature"`
@@ -33,9 +33,9 @@ type (
 
 	// SnsRecord is one SNS Message with its metadata
 	SnsRecord struct {
-		EventSource          string     `json:EventSource`
-		EventSubscriptionArn string     `json:EventSubscriptionArn`
-		EventVersion         string     `json:EventVersion`
+		EventSource          string     `json:"EventSource"`
+		EventSubscriptionArn string     `json:"EventSubscriptionArn"`
+		EventVersion         string     `json:"EventVersion"`
 		SnsMessage           SnsMessage `json:"Sns"`
 	}
 
@@ -115,14 +115,14 @@ func parseSnsInput(snsInput Input) (dynamodb.RestoreTableFromBackupInput, error)
 	backupJobID := fourthSplitString[1]
 
 	backupSnsMessage := BackupSnsMessage{
-		StatusMessage: statusMessage,
-		RecoveryPointArn: recoveryPointArn,
+		StatusMessage:       statusMessage,
+		RecoveryPointArn:    recoveryPointArn,
 		BackedUpResourceArn: backedUpResourceArn,
-		BackupJobID: backupJobID,
+		BackupJobID:         backupJobID,
 	}
 
 	return dynamodb.RestoreTableFromBackupInput{
-		BackupArn: aws.String(backupSnsMessage.RecoveryPointArn),
+		BackupArn:       aws.String(backupSnsMessage.RecoveryPointArn),
 		TargetTableName: aws.String("MyRestoredDynamoDBTable"),
 	}, nil
 }
