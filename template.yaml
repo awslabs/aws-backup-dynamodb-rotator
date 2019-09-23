@@ -19,14 +19,15 @@ Resources:
   AWSBackupSNSSubscription:
     Type: AWS::SNS::Subscription
     Properties:
-      Endpoint: !GetAtt [ StartStateMachineFunction, Arn ]
-      FilterPolicy: 
-        |-
-        {
-          "BackupVaultEvents": [
-            "BACKUP_JOB_COMPLETED"
-          ]
-        }
+      Endpoint:
+        !GetAtt StartStateMachineFunction.Arn
+      # FilterPolicy: 
+      #   |-
+      #   {
+      #     "BackupVaultEvents": [
+      #       "BACKUP_JOB_COMPLETED"
+      #     ]
+      #   }
       Protocol: lambda
       TopicArn:
         Ref: BackupSNSTopicARNParameter
@@ -45,6 +46,10 @@ Resources:
     Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
     Properties:
       CodeUri: ./bin/start-workflow/
+      Environment:
+        Variables:
+          STATE_MACHINE_ARN:
+            Ref: DynamoDBCloneRotator
       Handler: start-workflow
       Role:
         !GetAtt StartStateMachineFunctionRole.Arn
@@ -64,7 +69,7 @@ Resources:
                 "Restore Backup": {
                   "Type": "Task",
                   "Resource": "${restoreBackupArn}",
-                  "InputPath": "$.BackupEvent",
+                  "InputPath": "$.Records",
                   "ResultPath": "$.RestoreDynamoDBTableOutput",
                   "Next": "Complete"
                 },

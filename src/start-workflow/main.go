@@ -1,30 +1,40 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
+	"os"
+
 	"github.com/aws/aws-lambda-go/lambda"
+	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/sfn"
 )
 
-// These types will change based on whatever your function needs to
-// consume and return. In this case we are passed a dynamodb.CreateTableInput
-// object and return the dynamodb.CreateTableOutput from our call to
-// dynamodb.CreateTable.
-
 type (
-	// Input in this example is an sfn.StartExecutionInput object.
-	Input = sfn.StartExecutionInput
 	// Output in this example is an sfn.StartExecutionOutput object.
 	Output = sfn.StartExecutionOutput
 )
 
-func handler(input Input) (Output, error) {
+func handler(_ context.Context, input interface{}) (Output, error) {
+
 	// Create a Step Functions client named 'svc'
 	sess := session.Must(session.NewSession())
 	svc := sfn.New(sess)
 
+	b, err := json.Marshal(input)
+	if err != nil {
+		return Output{}, err
+	}
+	inputString := string(b)
+
+	stepFunctionInput := sfn.StartExecutionInput{
+		Input:           aws.String(inputString),
+		StateMachineArn: aws.String(os.Getenv("STATE_MACHINE_ARN")),
+	}
+
 	// Start the Step Function State Machine
-	output, err := svc.StartExecution(&input)
+	output, err := svc.StartExecution(&stepFunctionInput)
 	if err != nil {
 		return Output{}, err
 	}
