@@ -69,7 +69,6 @@ Resources:
                 "Restore Backup": {
                   "Type": "Task",
                   "Resource": "${restoreBackupArn}",
-                  "InputPath": "$.Records",
                   "ResultPath": "$.RestoreDynamoDBTableOutput",
                   "Next": "Complete"
                 },
