@@ -2,7 +2,11 @@ package main
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"regexp"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/aws/aws-sdk-go/aws"
@@ -16,33 +20,24 @@ import (
 // dynamodb.CreateTable.
 
 type (
-	// SnsMessage is one message published by SNS
-	SnsMessage struct {
-		Message           string            `json:"Message"`
-		MessageAttributes map[string]string `json:"MessageAttributes"`
-		MessageID         string            `json:"MessageId"`
-		Signature         string            `json:"Signature"`
-		SignatureVersion  string            `json:"SignatureVersion"`
-		SigningCertURL    string            `json:"SigningCertUrl"`
-		Subject           string            `json:"Subject"`
-		Timestamp         string            `json:"Timestamp"`
-		TopicArn          string            `json:"TopicArn"`
-		Type              string            `json:"Type"`
-		UnsubscribeURL    string            `json:"UnsubscribeUrl"`
+	// BackupSnsMessage represents the broken out SNS Message Body sent in
+	// an AWS Backup SNS message.
+	BackupSnsMessage struct {
+		StatusMessage       string
+		RecoveryPointArn    string
+		BackedUpResourceArn string
+		BackupJobID         string
 	}
 
-	// SnsRecord is one SNS Message with its metadata
-	SnsRecord struct {
-		EventSource          string     `json:"EventSource"`
-		EventSubscriptionArn string     `json:"EventSubscriptionArn"`
-		EventVersion         string     `json:"EventVersion"`
-		SnsMessage           SnsMessage `json:"Sns"`
+	//StepFunctionInput represents the input we pass to our state machine
+	StepFunctionInput struct {
+		BackupSnsMessage   BackupSnsMessage
+		SourcePattern      string
+		ReplacementPattern string
 	}
 
-	// Input is a collection of SNS Records
-	Input struct {
-		Records []SnsRecord `json:"Records"`
-	}
+	// Input is a single StepFunctionInput record
+	Input = StepFunctionInput
 
 	// Output in this example is a dynamodb.CreateTableOutput object.
 	Output = dynamodb.RestoreTableFromBackupOutput
@@ -55,7 +50,7 @@ func handler(_ context.Context, input Input) (Output, error) {
 
 	// Parse input records to extract the required fields to restore
 	// a DynamoDB table
-	dynamoDBInput, err := parseSnsInput(input)
+	dynamoDBInput, err := parseInput(input)
 	if err != nil {
 		return Output{}, err
 	}
@@ -73,56 +68,35 @@ func main() {
 	lambda.Start(handler)
 }
 
-func parseSnsInput(snsInput Input) (dynamodb.RestoreTableFromBackupInput, error) {
+func parseInput(input Input) (dynamodb.RestoreTableFromBackupInput, error) {
+	// First, split the table name out from the backed up resource ARN
+	parts := strings.SplitAfter(input.BackupSnsMessage.BackedUpResourceArn, "table/")
+	if len(parts) < 2 {
+		fmt.Println("Could not split DynamoDB table name from backed up resource ARN.")
+		return dynamodb.RestoreTableFromBackupInput{}, errors.New("Bad input ARN")
+	}
+	tableName := parts[1]
 
-	type BackupSnsMessage struct {
-		StatusMessage       string
-		RecoveryPointArn    string
-		BackedUpResourceArn string
-		BackupJobID         string
+	// Next, apply our replacement expression to get a new base tablename
+	r, err := regexp.Compile(input.SourcePattern)
+	if err != nil {
+		fmt.Printf("Could not compile source expression: %s\n", input.SourcePattern)
+		return dynamodb.RestoreTableFromBackupInput{}, err
 	}
 
-	snsMessage := snsInput.Records[0].SnsMessage.Message
+	replacement := r.ReplaceAllString(tableName, input.ReplacementPattern)
+	var str strings.Builder
+	str.WriteString(replacement)
 
-	// Sample Message:
-	//  "An AWS Backup job was completed successfully. Recovery point ARN: arn:aws:dynamodb:us-east-1:637093487455:table/MyDynamoDBTable/backup/01568804569000-d3306d76. Backed up Resource ARN : arn:aws:dynamodb:us-east-1:637093487455:table/MyDynamoDBTable. Backup Job Id : 5a772b5a-36d5-4a69-9b18-ed2f5213c659"
-	//
-	// So we need to extract:
-	//   1. StatusMessage (everything before "Recovery point ARN: ")
-	//   2. RecoveryPointArn (everything after "Recovery point ARN: " up until the period ".")
-	//   3. BackedUpResourceArn (everything after "Backed Up Resource ARN : " up until the period ".")
-	//   4. BackupJobId (everything after "Backup Job Id : ")
+	// Append a restore date-time stamp in the format "-YYYYMMDD-HH-mm-ss"
+	t := time.Now()
+	str.WriteString("-")
+	str.WriteString(t.Format("20060102-15-04-05"))
+	targetTable := str.String()
 
-	// 1. Extract the StatusMessage
-	firstSplitKey := "Recovery point ARN: "
-	firstSplitString := strings.SplitAfter(snsMessage, firstSplitKey)
-	statusMessage := strings.SplitAfter(firstSplitString[0], ".")[0]
-
-	// 2. Extract the RecoveryPointArn from the trailing string
-	secondSplitKey := "."
-	secondSplitString := strings.SplitAfterN(firstSplitString[1], secondSplitKey, 2)
-	recoveryPointArn := strings.Split(secondSplitString[0], ".")[0]
-
-	// 3. Extract the BackedUpResourceArn from the trailing string
-	thirdSplitKey := "Backed up Resource ARN : "
-	thirdSplitString := strings.SplitAfter(secondSplitString[1], thirdSplitKey)
-	tmpString := strings.SplitN(thirdSplitString[1], ".", 2)
-	backedUpResourceArn := tmpString[0]
-
-	// 4. Extract the BackupJobId from the remaining string
-	fourthSplitKey := "Backup Job Id : "
-	fourthSplitString := strings.SplitAfter(tmpString[1], fourthSplitKey)
-	backupJobID := fourthSplitString[1]
-
-	backupSnsMessage := BackupSnsMessage{
-		StatusMessage:       statusMessage,
-		RecoveryPointArn:    recoveryPointArn,
-		BackedUpResourceArn: backedUpResourceArn,
-		BackupJobID:         backupJobID,
-	}
-
+	// Restore the backed up table
 	return dynamodb.RestoreTableFromBackupInput{
-		BackupArn:       aws.String(backupSnsMessage.RecoveryPointArn),
-		TargetTableName: aws.String("MyRestoredDynamoDBTable"),
+		BackupArn:       aws.String(input.BackupSnsMessage.RecoveryPointArn),
+		TargetTableName: aws.String(targetTable),
 	}, nil
 }

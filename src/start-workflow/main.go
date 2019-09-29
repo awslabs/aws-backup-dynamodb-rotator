@@ -137,7 +137,7 @@ func isMatchingJob(message BackupSnsMessage, matchString string) (bool, error) {
 	//    in the SNS message.
 	const successfulBackupString = "An AWS Backup job was completed successfully."
 	if !strings.Contains(message.StatusMessage, successfulBackupString) {
-		fmt.Printf("This was not a BACKUP_COMPLETED job: %v\n", message.StatusMessage)
+		fmt.Printf("This was not a BACKUP_JOB_COMPLETED notification: %v\n", message.StatusMessage)
 		return false, nil
 	}
 
