@@ -29,6 +29,7 @@ type (
 		BackupSnsMessage   BackupSnsMessage
 		SourcePattern      string
 		ReplacementPattern string
+		SSMParameterName   string
 	}
 	// SnsMessage is one message published by SNS
 	SnsMessage struct {
@@ -67,6 +68,7 @@ func handler(_ context.Context, input Input) (Output, error) {
 	sourcePattern := os.Getenv("SOURCE_PATTERN")
 	replacementPattern := os.Getenv("REPLACEMENT_PATTERN")
 	stateMachineArn := os.Getenv("STATE_MACHINE_ARN")
+	ssmParameterName := os.Getenv("SSM_PARAMETER_NAME")
 
 	// Setup: Split the provided string into a BackupSnsMessage for parsing
 	message, err := parseSnsInput(input)
@@ -94,6 +96,7 @@ func handler(_ context.Context, input Input) (Output, error) {
 		BackupSnsMessage:   message,
 		SourcePattern:      sourcePattern,
 		ReplacementPattern: replacementPattern,
+		SSMParameterName:   ssmParameterName,
 	})
 	if err != nil {
 		fmt.Printf("Error marshalling message into JSON string: %v\n", message)

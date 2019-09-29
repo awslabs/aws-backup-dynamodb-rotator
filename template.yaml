@@ -8,7 +8,9 @@ Description: >
 # More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
 Globals:
   Function:
+    Runtime: go1.x
     Timeout: 10
+    Tracing: Active # https://docs.aws.amazon.com/lambda/latest/dg/lambda-x-ray.html
 
 Parameters:
   BackupSNSTopicARNParameter:
@@ -23,6 +25,10 @@ Parameters:
     Type: String
     Description: A replacement expression used to name the restored resource given in the format, e.g., "-staging" (without the double quotes) to replace the given SourcePatternParameter with "-staging" in the newly restored instance. A date time stamp of the format "-20060102-15-04-05" (-YYYYMMDD-HH-mm-ss) will be appended to the replacement name in all cases. If no expression is provided, the restored resource will bear the name of the original resource with the date time stamp appended, i.e., use "$0" as the replacement expression.
     Default: "$0"
+  SSMParameterNameParameter:
+    Type: String
+    Description: The name and path of an AWS Systems Manager (SSM) Parameter Store parameter to be created or updated with the ARN of the newly restored database, e.g., "/service/staging-database-arn" (without the double quotes). This is useful for automating reporting, staging, and test database rollover. This parameter is optional, and if no value is provided no parameter will be created or updated.
+    Default: ""
 
 Resources:
   AWSBackupSNSSubscription:
@@ -63,11 +69,11 @@ Resources:
             Ref: SourcePatternParameter
           REPLACEMENT_PATTERN:
             Ref: ReplacementPatternParameter
+          SSM_PARAMETER_NAME:
+            Ref: SSMParameterNameParameter
       Handler: start-workflow
       Role:
         !GetAtt StartStateMachineFunctionRole.Arn
-      Runtime: go1.x
-      Tracing: Active # https://docs.aws.amazon.com/lambda/latest/dg/lambda-x-ray.html
 
   DynamoDBCloneRotator:
     Type: AWS::StepFunctions::StateMachine
@@ -82,22 +88,89 @@ Resources:
                 "Restore Backup": {
                   "Type": "Task",
                   "Resource": "${restoreBackupArn}",
-                  "ResultPath": "$.RestoreDynamoDBTableOutput",
+                  "ResultPath": "$.RestoreTableFromBackupOutput",
+                  "Next": "SSM Parameter Provided ?"
+                },
+                "SSM Parameter Provided ?": {
+                  "Type": "Choice",
+                  "Choices": [
+                    {
+                      "Not": {
+                        "Variable": "$.SSMParameterName",
+                        "StringEquals": ""
+                      },
+                      "Next": "Wait for Restore"
+                    }
+                  ],
+                  "Default": "Complete"
+                },
+                "Wait for Restore": {
+                  "Type": "Wait",
+                  "Seconds": 60,
+                  "Next": "Check Restore Status"
+                },
+                "Check Restore Status": {
+                  "Type": "Task",
+                  "Resource": "${checkRestoreStatusArn}",
+                  "InputPath": "$.RestoreTableFromBackupOutput",
+                  "ResultPath": "$.DescribeTableOutput",
+                  "Next": "Restore Complete?"
+                },
+                "Restore Complete?": {
+                  "Type": "Choice",
+                  "Choices": [
+                    {
+                      "Variable": "$.DescribeTableOutput.Table.TableStatus",
+                      "StringEquals": "ACTIVE",
+                      "Next": "Update SSM Parameter"
+                    },
+                    {
+                      "Or": [
+                        {
+                          "Variable": "$.DescribeTableOutput.Table.TableStatus",
+                          "StringEquals": "CREATING"
+                        },
+                        {
+                          "Variable": "$.DescribeTableOutput.Table.TableStatus",
+                          "StringEquals": "UPDATING"
+                        }
+                      ],
+                      "Next": "Wait for Restore"
+                    }
+                  ],
+                  "Default": "Error"
+                },
+                "Update SSM Parameter": {
+                  "Type": "Task",
+                  "Resource": "${updateSSMParameterArn}",
+                  "ResultPath": "$.UpdateSSMParameterOutput",
                   "Next": "Complete"
                 },
                 "Complete": {
                   "Type": "Succeed"
+                },
+                "Error": {
+                  "Type": "Fail"
                 }
               }
             }
           - {
-              restoreBackupArn:
-                !GetAtt RestoreBackupFunction.Arn
+              checkRestoreStatusArn: !GetAtt CheckRestoreStatusFunction.Arn,
+              restoreBackupArn: !GetAtt RestoreBackupFunction.Arn,
+              updateSSMParameterArn: !GetAtt UpdateSSMParameterFunction.Arn
             }
       RoleArn:
         !GetAtt StatesExecutionRole.Arn
       StateMachineName: DynamoDBCloneRotator
   
+  CheckRestoreStatusFunction:
+    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+    Properties:
+      CodeUri: ./bin/check-restore-status/
+      Handler: check-restore-status
+      Role:
+        !GetAtt CheckRestoreStatusFunctionRole.Arn
+
   RestoreBackupFunction:
     Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
     Properties:
@@ -105,8 +178,14 @@ Resources:
       Handler: restore-backup
       Role:
         !GetAtt RestoreBackupFunctionRole.Arn
-      Runtime: go1.x
-      Tracing: Active # https://docs.aws.amazon.com/lambda/latest/dg/lambda-x-ray.html
+
+  UpdateSSMParameterFunction:
+    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+    Properties:
+      CodeUri: ./bin/update-ssm-parameter/
+      Handler: update-ssm-parameter
+      Role:
+        !GetAtt UpdateSSMParameterFunctionRole.Arn
 
 # IAM Roles
   StartStateMachineFunctionRole:
@@ -156,8 +235,36 @@ Resources:
                 Action:
                   - "lambda:InvokeFunction"
                 Resource: 
+                  - !GetAtt CheckRestoreStatusFunction.Arn
                   - !GetAtt RestoreBackupFunction.Arn
+                  - !GetAtt UpdateSSMParameterFunction.Arn
   
+  CheckRestoreStatusFunctionRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - !Sub lambda.amazonaws.com
+            Action: "sts:AssumeRole"
+      Path: "/"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AWSXrayWriteOnlyAccess
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: CheckRestoreStatusFunctionExecutionPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "dynamodb:DescribeTable"
+                Resource:
+                  - "*"
+
   RestoreBackupFunctionRole:
     Type: "AWS::IAM::Role"
     Properties:
@@ -188,6 +295,32 @@ Resources:
                   - "dynamodb:RestoreTableFromBackup"
                   - "dynamodb:Scan"
                   - "dynamodb:UpdateItem"
+                Resource:
+                  - "*"
+
+  UpdateSSMParameterFunctionRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - !Sub lambda.amazonaws.com
+            Action: "sts:AssumeRole"
+      Path: "/"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AWSXrayWriteOnlyAccess
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: UpdateSSMParameterFunctionExecutionPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "ssm:PutParameter"
                 Resource:
                   - "*"
 
