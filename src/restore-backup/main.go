@@ -90,8 +90,7 @@ func parseInput(input Input) (dynamodb.RestoreTableFromBackupInput, error) {
 
 	// Append a restore date-time stamp in the format "-YYYYMMDD-HH-mm-ss"
 	t := time.Now()
-	str.WriteString("-")
-	str.WriteString(t.Format("20060102-15-04-05"))
+	str.WriteString(t.Format("-20060102-15-04-05"))
 	targetTable := str.String()
 
 	// Restore the backed up table

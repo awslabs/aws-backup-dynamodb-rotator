@@ -17,13 +17,12 @@ Parameters:
     AllowedPattern: "^arn:aws:sns:[a-zA-Z0-9_.-]+:[0-9]{12}:[a-zA-Z0-9_.-]+"
   SourcePatternParameter:
     Type: String
-    Description: A regular expression matching the name - not full ARN - of resources to be restored, e.g., "(?i)-production$" (without the double quotes) for all DynamoDB tables ending with "-production" (case insensitive). If no expression is provided, all DynamoDB tables will be restored. Currently only DynamoDB tables are supported.
+    Description: A regular expression matching the table name - not full ARN - of resources to be restored, e.g., "(?i)-production$" (without the double quotes) for all DynamoDB tables ending with "-production" (case insensitive). If no expression is provided, all DynamoDB tables will be restored. Currently only DynamoDB tables are supported.
     Default: ".*"
   ReplacementPatternParameter:
     Type: String
-    Description: A sed replacement expression used to name the restored resource given in the format "s/{source-regexp}/{replacement}/{flags}", e.g., "s/-production/-staging/" (without the double quotes) to replace "-production" with "-staging" in the newly restored instance. A date time stamp of the format "-20190925-15-45-00" (YYYYMMDD-HH-mm-ss) will be appended to the replacement name in all cases. If no expression is provided, the restored resource will bear the name of the original resource with the date time stamp appended.
-    Default: "s/(.*)/\\1/"
-    AllowedPattern: "^s\/.*\/.*\/.*"
+    Description: A replacement expression used to name the restored resource given in the format, e.g., "-staging" (without the double quotes) to replace the given SourcePatternParameter with "-staging" in the newly restored instance. A date time stamp of the format "-20060102-15-04-05" (-YYYYMMDD-HH-mm-ss) will be appended to the replacement name in all cases. If no expression is provided, the restored resource will bear the name of the original resource with the date time stamp appended, i.e., use "$0" as the replacement expression.
+    Default: "$0"
 
 Resources:
   AWSBackupSNSSubscription:

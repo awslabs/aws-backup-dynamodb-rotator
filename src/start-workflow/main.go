@@ -157,7 +157,6 @@ func isMatchingJob(message BackupSnsMessage, matchString string) (bool, error) {
 	//    MatchString reports whether the string s contains any match of the regular
 	//    expression pattern. More complicated queries need to use Compile and the
 	//    full Regexp interface.
-	fmt.Printf("Backed up resource ARN: %s\n", message.BackedUpResourceArn)
 	return regexp.MatchString(matchString, message.BackedUpResourceArn)
 }
 
