@@ -1,186 +1,84 @@
-# aws-backup-rotator
+# AWS Backup DynamoDB Rotator
 
-This is a sample template for aws-backup-rotator - Below is a brief explanation of what we have generated for you:
+The AWS Backup DynamoDB Rotator ("the app") restores [Amazon DynamoDB][dynamodb-home] backups to a new timestamped table based on patterns you specify. The app subscribes to an existing [Amazon Simple Notification Service (SNS)][sns-home] topic where [AWS Backup][backup-home] publishes its event notifications. When a BACKUP_JOB_COMPLETE event is received for a DynamoDB table matching a pattern you specify, an [AWS Step Functions][step-functions-home] state machine execution begins that restores the backup to a new table. Optionally, once the restore is complete, an [AWS Systems Manager (SSM)][ssm-home] parameter that you specify is updated with the ARN of the newly-restored table.
 
-```bash
-.
-├── Makefile                    <-- Make to automate build
-├── README.md                   <-- This instructions file
-├── hello-world                 <-- Source code for a lambda function
-│   ├── main.go                 <-- Lambda function code
-│   └── main_test.go            <-- Unit tests
-└── template.yaml
+## Pre-Requisites
+
+The app requires the following AWS resources to exist before installation:
+
+1. An AWS Backup vault [configured to send notification events to SNS][backup-sns-guide].
+1. An SNS topic that receives notifications from the Backup vault.
+1. One or more DynamoDB tables configured in Backup that you wish to restore on a recurring basis.
+1. A scheduled Backup job in the Backup vault that backs up the DynamoDB tables you wish to restore.
+
+## Parameters
+
+1. `BackupSNSTopicARN` - [Required] The ARN for a previously existing SNS topic to which AWS Backup publishes its notifications. The Step Function will subscribe to this topic and begin execution when a `BACKUP_JOB_COMPLETED` notification is published.
+1. `SourcePattern` - [Optional] A regular expression matching the table name - not full ARN - of resources to be restored, e.g., "(?i)-production$" (without the double quotes) for all DynamoDB tables ending with `-production` (case insensitive). If no expression is provided, all DynamoDB tables will be restored. Currently only DynamoDB tables are supported.
+1. `ReplacementPattern` - [Optional] A replacement expression used to name the restored resource given in the format, e.g., "-staging" (without the double quotes) to replace the given SourcePatternParameter with "-staging" in the newly restored instance. A date time stamp of the format `-20060102-15-04-05 (-YYYYMMDD-HH-mm-ss)` will be appended to the replacement name in all cases. If no expression is provided, the restored resource will bear the name of the original resource with the date time stamp appended, i.e., use `$0` as the replacement expression.
+1. `SSMParameterName` - [Optional] The name and path of an AWS Systems Manager (SSM) Parameter Store parameter to be created or updated with the ARN of the newly restored database, e.g., `/service/staging-database-arn` (without the double quotes). This is useful for automating reporting, staging, and test database rollover. This parameter is optional, and if no value is provided no parameter will be created or updated.
+
+## How it Works
+
+The app subscribes to an existing SNS topic where AWS Backup publishes its event notifications. When a BACKUP_JOB_COMPLETE event is received for a DynamoDB table matching a pattern you specify, an AWS Step Functions state machine execution begins that restores the backup to a new table.
+
+The first Lambda function processes the body of an SNS message sent by AWS Backup to an SNS topic. This lambda function determines whether the resource should be restored using a set of business rules, and if so, initiates an AWS Step Functions state machine using the SDK API call [`SFN.StartExecution`][SFN.StartExecution].
+
+### AWS Step Functions State Machine
+
+The first state machine passes input to the state machine in the following format:
+
+```json
+{
+    "BackupSnsMessage": {
+        "StatusMessage": { "type": "string" },
+        "RecoveryPointArn": { "type": "string" },
+        "BackedUpResourceArn": { "type": "string" },
+        "BackupJobID": { "type": "string" }
+    },
+    "SourcePattern": { "type": "string" },
+    "ReplacementPattern": { "type": "string" },
+    "SSMParameterName": { "type": "string" }
+}
 ```
 
-## Requirements
+When invoked, the state machine invokes a second Lambda function which initiates the restore using the SDK API call [`DynamoDB.RestoreTableFromBackup`][DynamoDB.RestoreTableFromBackup].
 
-* AWS CLI already configured with Administrator permission
-* [Docker installed](https://www.docker.com/community-edition)
-* [Golang](https://golang.org)
+Once the restore is initiated, the state machine checks whether an SSM parameter was defined in the CloudFormation/SAM template. If not, execution completes successfully.
 
-## Setup process
+If an SSM parameter was defined, the state machine then sleeps for a pre-determined period before invoking a third Lambda function which checks the status of the restore operation using the SDK API call [`DynamoDB.DescribeTable`][DynamoDB.DescribeTable].
 
-### Installing dependencies
+If the restore is not yet complete, the state machine enters a loop of sleeping and checking the status of the restore operation.
 
-In this example we use the built-in `go get` and the only dependency we need is AWS Lambda Go SDK:
+Once the restore is complete, the state machine invokes a fourth Lambda function which updates the provided SSM parameter with the ARN of the newly-restored DynamoDB table using the SDK API call [`SSM.PutParameter`][SSM.PutParameter].
 
-```shell
-go get -u github.com/aws/aws-lambda-go/...
+Each Lambda function adds its return values to the state in the state machine. On completion, the state is in the following format (top level objects only):
+
+```json
+{
+    "BackupSnsMessage": {},
+    "SourcePattern": "",
+    "ReplacementPattern": "",
+    "SSMParameterName": "",
+    "RestoreTableFromBackupOutput": {},
+    "DescribeTableOutput": {},
+    "UpdateSSMParameterOutput": {}
+}
 ```
 
-**NOTE:** As you change your application code as well as dependencies during development, you might want to research how to handle dependencies in Golang at scale.
+Once completed, we have a newly restored copy of our backup named to match the time of restore.
 
-### Building
+[backup-home]: https://aws.amazon.com/backup/
+[backup-sns-guide]: https://docs.aws.amazon.com/en_pv/aws-backup/latest/devguide/sns-notifications.html
+[dynamodb-home]: https://aws.amazon.com/dynamodb/
+[sns-home]: https://aws.amazon.com/sns/
+[ssm-home]: https://aws.amazon.com/systems-manager/
+[step-functions-home]: https://aws.amazon.com/step-functions/
 
-Golang is a statically compiled language, meaning that in order to run it you have to build the executable target.
+[DynamoDB.DescribeTable]: https://docs.aws.amazon.com/sdk-for-go/api/service/dynamodb/#DynamoDB.DescribeTable
+[DynamoDB.RestoreTableFromBackup]: https://docs.aws.amazon.com/sdk-for-go/api/service/dynamodb/#DynamoDB.RestoreTableFromBackup
+[SFN.StartExecution]: https://docs.aws.amazon.com/sdk-for-go/api/service/sfn/#SFN.StartExecution
+[SSM.PutParameter]: https://docs.aws.amazon.com/sdk-for-go/api/service/ssm/#SSM.PutParameter
 
-You can issue the following command in a shell to build it:
-
-```shell
-GOOS=linux GOARCH=amd64 go build -o hello-world/hello-world ./hello-world
-```
-
-**NOTE**: If you're not building the function on a Linux machine, you will need to specify the `GOOS` and `GOARCH` environment variables, this allows Golang to build your function for another system architecture and ensure compatibility.
-
-### Local development
-
-**Invoking function locally through local API Gateway**
-
-```bash
-sam local start-api
-```
-
-If the previous command ran successfully you should now be able to hit the following local endpoint to invoke your function `http://localhost:3000/hello`
-
-**SAM CLI** is used to emulate both Lambda and API Gateway locally and uses our `template.yaml` to understand how to bootstrap this environment (runtime, where the source code is, etc.) - The following excerpt is what the CLI will read in order to initialize an API and its routes:
-
-```yaml
-...
-Events:
-    HelloWorld:
-        Type: Api # More info about API Event Source: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#api
-        Properties:
-            Path: /hello
-            Method: get
-```
-
-## Packaging and deployment
-
-AWS Lambda Python runtime requires a flat folder with all dependencies including the application. SAM will use `CodeUri` property to know where to look up for both application and dependencies:
-
-```yaml
-...
-    FirstFunction:
-        Type: AWS::Serverless::Function
-        Properties:
-            CodeUri: hello_world/
-            ...
-```
-
-First and foremost, we need a `S3 bucket` where we can upload our Lambda functions packaged as ZIP before we deploy anything - If you don't have a S3 bucket to store code artifacts then this is a good time to create one:
-
-```bash
-aws s3 mb s3://BUCKET_NAME
-```
-
-Next, run the following command to package our Lambda function to S3:
-
-```bash
-sam package \
-    --output-template-file packaged.yaml \
-    --s3-bucket REPLACE_THIS_WITH_YOUR_S3_BUCKET_NAME
-```
-
-Next, the following command will create a Cloudformation Stack and deploy your SAM resources.
-
-```bash
-sam deploy \
-    --template-file packaged.yaml \
-    --stack-name aws-backup-rotator \
-    --capabilities CAPABILITY_IAM
-```
-
-> **See [Serverless Application Model (SAM) HOWTO Guide](https://github.com/awslabs/serverless-application-model/blob/master/HOWTO.md) for more details in how to get started.**
-
-After deployment is complete you can run the following command to retrieve the API Gateway Endpoint URL:
-
-```bash
-aws cloudformation describe-stacks \
-    --stack-name aws-backup-rotator \
-    --query 'Stacks[].Outputs'
-``` 
-
-### Testing
-
-We use `testing` package that is built-in in Golang and you can simply run the following command to run our tests:
-
-```shell
-go test -v ./hello-world/
-```
-# Appendix
-
-### Golang installation
-
-Please ensure Go 1.x (where 'x' is the latest version) is installed as per the instructions on the official golang website: https://golang.org/doc/install
-
-A quickstart way would be to use Homebrew, chocolatey or your linux package manager.
-
-#### Homebrew (Mac)
-
-Issue the following command from the terminal:
-
-```shell
-brew install golang
-```
-
-If it's already installed, run the following command to ensure it's the latest version:
-
-```shell
-brew update
-brew upgrade golang
-```
-
-#### Chocolatey (Windows)
-
-Issue the following command from the powershell:
-
-```shell
-choco install golang
-```
-
-If it's already installed, run the following command to ensure it's the latest version:
-
-```shell
-choco upgrade golang
-```
-## AWS CLI commands
-
-AWS CLI commands to package, deploy and describe outputs defined within the cloudformation stack:
-
-```bash
-sam package \
-    --template-file template.yaml \
-    --output-template-file packaged.yaml \
-    --s3-bucket REPLACE_THIS_WITH_YOUR_S3_BUCKET_NAME
-
-sam deploy \
-    --template-file packaged.yaml \
-    --stack-name aws-backup-rotator \
-    --capabilities CAPABILITY_IAM \
-    --parameter-overrides MyParameterSample=MySampleValue
-
-aws cloudformation describe-stacks \
-    --stack-name aws-backup-rotator --query 'Stacks[].Outputs'
-```
-
-## Bringing to the next level
-
-Here are a few ideas that you can use to get more acquainted as to how this overall process works:
-
-* Create an additional API resource (e.g. /hello/{proxy+}) and return the name requested through this new path
-* Update unit test to capture that
-* Package & Deploy
-
-Next, you can use the following resources to know more about beyond hello world samples and how others structure their Serverless applications:
-
-* [AWS Serverless Application Repository](https://aws.amazon.com/serverless/serverlessrepo/)
+[restored-table-image]: images/restored-table.png
+[state-machine-image]: images/state-machine-image.png

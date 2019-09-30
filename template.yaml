@@ -1,9 +1,22 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: >
-  aws-backup-rotator
+  AWS Backup DynamoDB Rotator
   
-  Sample SAM Template for aws-backup-rotator
+  The AWS Backup/DynamoDB Rotator ("the app") restores DynamoDB backups to a new timestamped table based on patterns you specify. The app subscribes to an existing SNS topic where AWS Backup publishes its event notifications. When a BACKUP_JOB_COMPLETE event is received for a DynamoDB table matching a pattern you specify, an AWS Step Functions state machine execution begins that restores the backup to a new table.
+
+Metadata:
+  AWS::ServerlessRepo::Application:
+    Name: AWS-Backup-DynamoDB-Rotator
+    Description: The AWS Backup DynamoDB Rotator restores DynamoDB backups to a new timestamped table based on patterns you specify.
+    Author: Rob Sutter
+    SpdxLicenseId: Apache-2.0
+    LicenseUrl: LICENSE.txt
+    ReadmeUrl: README.md
+    Labels: ['Backup', 'Restore', 'DynamoDB', 'Rotator', 'Disaster', 'Recovery', 'DR', 'BC', 'Operations', 'Automation']
+    HomePageUrl: https://github.com/awslabs/aws-backup-dynamodb-rotator
+    SemanticVersion: 0.0.1
+    SourceCodeUrl: https://github.com/awslabs/aws-backup-dynamodb-rotator
 
 # More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
 Globals:
@@ -13,19 +26,19 @@ Globals:
     Tracing: Active # https://docs.aws.amazon.com/lambda/latest/dg/lambda-x-ray.html
 
 Parameters:
-  BackupSNSTopicARNParameter:
+  BackupSNSTopicARN:
     Type: String
     Description: The ARN for a previously existing SNS topic to which AWS Backup publishes its notifications. The Step Function will subscribe to this topic and begin execution when a "BACKUP_JOB_COMPLETED" notification is published.
     AllowedPattern: "^arn:aws:sns:[a-zA-Z0-9_.-]+:[0-9]{12}:[a-zA-Z0-9_.-]+"
-  SourcePatternParameter:
+  SourcePattern:
     Type: String
     Description: A regular expression matching the table name - not full ARN - of resources to be restored, e.g., "(?i)-production$" (without the double quotes) for all DynamoDB tables ending with "-production" (case insensitive). If no expression is provided, all DynamoDB tables will be restored. Currently only DynamoDB tables are supported.
     Default: ".*"
-  ReplacementPatternParameter:
+  ReplacementPattern:
     Type: String
     Description: A replacement expression used to name the restored resource given in the format, e.g., "-staging" (without the double quotes) to replace the given SourcePatternParameter with "-staging" in the newly restored instance. A date time stamp of the format "-20060102-15-04-05" (-YYYYMMDD-HH-mm-ss) will be appended to the replacement name in all cases. If no expression is provided, the restored resource will bear the name of the original resource with the date time stamp appended, i.e., use "$0" as the replacement expression.
     Default: "$0"
-  SSMParameterNameParameter:
+  SSMParameterName:
     Type: String
     Description: The name and path of an AWS Systems Manager (SSM) Parameter Store parameter to be created or updated with the ARN of the newly restored database, e.g., "/service/staging-database-arn" (without the double quotes). This is useful for automating reporting, staging, and test database rollover. This parameter is optional, and if no value is provided no parameter will be created or updated.
     Default: ""
@@ -45,7 +58,7 @@ Resources:
       #   }
       Protocol: lambda
       TopicArn:
-        Ref: BackupSNSTopicARNParameter
+        Ref: BackupSNSTopicARN
   
   SNSLambdaInvokePermission:
     Type: AWS::Lambda::Permission
@@ -53,7 +66,7 @@ Resources:
       Action: lambda:InvokeFunction
       Principal: sns.amazonaws.com
       SourceArn:
-        Ref: BackupSNSTopicARNParameter
+        Ref: BackupSNSTopicARN
       FunctionName:
         !GetAtt StartStateMachineFunction.Arn
 
@@ -66,11 +79,11 @@ Resources:
           STATE_MACHINE_ARN:
             Ref: DynamoDBCloneRotator
           SOURCE_PATTERN:
-            Ref: SourcePatternParameter
+            Ref: SourcePattern
           REPLACEMENT_PATTERN:
-            Ref: ReplacementPatternParameter
+            Ref: ReplacementPattern
           SSM_PARAMETER_NAME:
-            Ref: SSMParameterNameParameter
+            Ref: SSMParameterName
       Handler: start-workflow
       Role:
         !GetAtt StartStateMachineFunctionRole.Arn

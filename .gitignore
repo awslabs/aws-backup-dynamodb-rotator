@@ -20,3 +20,6 @@ packaged.yaml
 
 # Specific events, as these tend to include account numbers
 events/*.json
+
+# macOS specific files
+.DS_Store
