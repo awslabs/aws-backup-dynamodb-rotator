@@ -66,7 +66,7 @@ Each Lambda function adds its return values to the state in the state machine. O
 }
 ```
 
-Once completed, we have a newly restored copy of our backup named to match the time of restore.
+Once completed, we have a newly restored copy of our backup named to match the time the backup was started.
 
 [backup-home]: https://aws.amazon.com/backup/
 [backup-sns-guide]: https://docs.aws.amazon.com/en_pv/aws-backup/latest/devguide/sns-notifications.html
