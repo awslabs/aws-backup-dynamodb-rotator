@@ -5,11 +5,14 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"regexp"
 	"strings"
+	"time"
 
+	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -24,6 +27,7 @@ type (
 		RecoveryPointArn    string
 		BackedUpResourceArn string
 		BackupJobID         string
+		StartTime           time.Time
 	}
 
 	//StepFunctionInput represents the input we pass to our state machine
@@ -33,33 +37,9 @@ type (
 		ReplacementPattern string
 		SSMParameterName   string
 	}
-	// SnsMessage is one message published by SNS
-	SnsMessage struct {
-		Message           string            `json:"Message"`
-		MessageAttributes map[string]string `json:"MessageAttributes"`
-		MessageID         string            `json:"MessageId"`
-		Signature         string            `json:"Signature"`
-		SignatureVersion  string            `json:"SignatureVersion"`
-		SigningCertURL    string            `json:"SigningCertUrl"`
-		Subject           string            `json:"Subject"`
-		Timestamp         string            `json:"Timestamp"`
-		TopicArn          string            `json:"TopicArn"`
-		Type              string            `json:"Type"`
-		UnsubscribeURL    string            `json:"UnsubscribeUrl"`
-	}
 
-	// SnsRecord is one SNS Message with its metadata
-	SnsRecord struct {
-		EventSource          string     `json:"EventSource"`
-		EventSubscriptionArn string     `json:"EventSubscriptionArn"`
-		EventVersion         string     `json:"EventVersion"`
-		SnsMessage           SnsMessage `json:"Sns"`
-	}
-
-	// Input is a collection of SNS Records
-	Input struct {
-		Records []SnsRecord `json:"Records"`
-	}
+	// Input is an SNSEvent (a slice of SNSEventRecord)
+	Input = events.SNSEvent
 
 	// Output in this example is an sfn.StartExecutionOutput object.
 	Output = sfn.StartExecutionOutput
@@ -167,7 +147,14 @@ func isMatchingJob(message BackupSnsMessage, matchString string) (bool, error) {
 
 func parseSnsInput(snsInput Input) (BackupSnsMessage, error) {
 
-	snsMessage := snsInput.Records[0].SnsMessage.Message
+	record := snsInput.Records[0]
+	snsMessage := record.SNS.Message
+
+	b, err := json.MarshalIndent(snsInput.Records, "", "  ")
+	if err != nil {
+		return BackupSnsMessage{}, err
+	}
+	fmt.Printf("SNSEntity: %v\n", string(b))
 
 	// Sample Message:
 	//  "An AWS Backup job was completed successfully. Recovery point ARN: arn:aws:dynamodb:us-east-1:637093487455:table/MyDynamoDBTable/backup/01568804569000-d3306d76. Backed up Resource ARN : arn:aws:dynamodb:us-east-1:637093487455:table/MyDynamoDBTable. Backup Job Id : 5a772b5a-36d5-4a69-9b18-ed2f5213c659"
@@ -181,28 +168,59 @@ func parseSnsInput(snsInput Input) (BackupSnsMessage, error) {
 	// 1. Extract the StatusMessage
 	firstSplitKey := "Recovery point ARN: "
 	firstSplitString := strings.SplitAfter(snsMessage, firstSplitKey)
+	if len(firstSplitString) == 0 {
+		fmt.Printf("Could not parse StatusMessage from snsMessage: %v\n", snsMessage)
+		return BackupSnsMessage{}, errors.New("parse failure: StatusMessage")
+	}
 	statusMessage := strings.SplitAfter(firstSplitString[0], ".")[0]
 
 	// 2. Extract the RecoveryPointArn from the trailing string
 	secondSplitKey := "."
 	secondSplitString := strings.SplitAfterN(firstSplitString[1], secondSplitKey, 2)
+	if len(secondSplitString) == 0 {
+		fmt.Printf("Could not parse RecoveryPointArn for snsMessage: %v\n", snsMessage)
+		return BackupSnsMessage{}, errors.New("parse failure: RecoveryPointArn")
+	}
 	recoveryPointArn := strings.Split(secondSplitString[0], ".")[0]
 
 	// 3. Extract the BackedUpResourceArn from the trailing string
 	thirdSplitKey := "Backed up Resource ARN : "
 	thirdSplitString := strings.SplitAfter(secondSplitString[1], thirdSplitKey)
+	if len(thirdSplitString) == 0 {
+		fmt.Printf("Could not parse BackedUpResourceArn for snsMessage: %v\n", snsMessage)
+		return BackupSnsMessage{}, errors.New("parse failure: BackedUpResourceArn")
+	}
 	tmpString := strings.SplitN(thirdSplitString[1], ".", 2)
+	if len(tmpString) == 0 {
+		fmt.Printf("Could not parse BackedUpResourceArn for snsMessage: %v\n", snsMessage)
+		return BackupSnsMessage{}, errors.New("parse failure: BackedUpResourceArn")
+	}
 	backedUpResourceArn := tmpString[0]
 
 	// 4. Extract the BackupJobId from the remaining string
 	fourthSplitKey := "Backup Job Id : "
 	fourthSplitString := strings.SplitAfter(tmpString[1], fourthSplitKey)
+	if len(fourthSplitString) == 0 {
+		fmt.Printf("Could not parse BackupJobID for snsMessage: %v\n", snsMessage)
+		return BackupSnsMessage{}, errors.New("parse failure: BackupJobID")
+	}
 	backupJobID := fourthSplitString[1]
+
+	// We also need to get the backup StartTime from the MessageAttributes so it can be
+	// appended to the restored table.
+	snapshotTimeAttribute := record.SNS.MessageAttributes["StartTime"].(map[string]interface{})
+	snapshotTime := snapshotTimeAttribute["Value"].(string)
+	// Backup StartTime is given in RFC3339 layout 2006-01-02T15:04:05Z07:00
+	startTime, err := time.Parse(time.RFC3339, snapshotTime)
+	if err != nil {
+		return BackupSnsMessage{}, errors.New("parse failure: StartTime")
+	}
 
 	return BackupSnsMessage{
 		StatusMessage:       statusMessage,
 		RecoveryPointArn:    recoveryPointArn,
 		BackedUpResourceArn: backedUpResourceArn,
 		BackupJobID:         backupJobID,
+		StartTime:           startTime,
 	}, nil
 }

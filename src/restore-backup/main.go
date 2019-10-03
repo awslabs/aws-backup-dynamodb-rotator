@@ -29,6 +29,7 @@ type (
 		RecoveryPointArn    string
 		BackedUpResourceArn string
 		BackupJobID         string
+		StartTime           time.Time
 	}
 
 	//StepFunctionInput represents the input we pass to our state machine
@@ -91,7 +92,7 @@ func parseInput(input Input) (dynamodb.RestoreTableFromBackupInput, error) {
 	str.WriteString(replacement)
 
 	// Append a restore date-time stamp in the format "-YYYYMMDD-HH-mm-ss"
-	t := time.Now()
+	t := input.BackupSnsMessage.StartTime
 	str.WriteString(t.Format("-20060102-15-04-05"))
 	targetTable := str.String()
 

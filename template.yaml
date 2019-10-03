@@ -13,7 +13,7 @@ Metadata:
     Description: The AWS Backup DynamoDB Rotator restores DynamoDB backups to a new timestamped table based on patterns you specify.
     Author: Rob Sutter
     SpdxLicenseId: Apache-2.0
-    LicenseUrl: LICENSE.txt
+    LicenseUrl: LICENSE
     ReadmeUrl: README.md
     Labels: ['Backup', 'Restore', 'DynamoDB', 'Rotator', 'Disaster', 'Recovery', 'DR', 'BC', 'Operations', 'Automation']
     HomePageUrl: https://github.com/awslabs/aws-backup-dynamodb-rotator
@@ -51,13 +51,16 @@ Resources:
     Properties:
       Endpoint:
         !GetAtt StartStateMachineFunction.Arn
-      # FilterPolicy: 
-      #   |-
-      #   {
-      #     "BackupVaultEvents": [
-      #       "BACKUP_JOB_COMPLETED"
-      #     ]
-      #   }
+      FilterPolicy: 
+        |-
+        {
+          "EventType": [
+            "BACKUP_JOB"
+          ],
+          "State": [
+            "COMPLETED"
+          ]
+        }
       Protocol: lambda
       TopicArn:
         Ref: BackupSNSTopicARN
