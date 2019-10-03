@@ -1,4 +1,6 @@
-module aws.amazon.com/aws-backup-rotator
+// Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0
+module aws.amazon.com/aws-backup-dynamodb-rotator
 
 go 1.13
 
