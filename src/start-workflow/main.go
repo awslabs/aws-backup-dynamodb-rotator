@@ -38,14 +38,11 @@ type (
 		SSMParameterName   string
 	}
 
-	// Input is an SNSEvent (a slice of SNSEventRecord)
-	Input = events.SNSEvent
-
 	// Output in this example is an sfn.StartExecutionOutput object.
 	Output = sfn.StartExecutionOutput
 )
 
-func handler(_ context.Context, input Input) (Output, error) {
+func handler(_ context.Context, input events.SNSEvent) (Output, error) {
 	// Get our source pattern regexp from the environment
 	sourcePattern := os.Getenv("SOURCE_PATTERN")
 	replacementPattern := os.Getenv("REPLACEMENT_PATTERN")
@@ -145,16 +142,10 @@ func isMatchingJob(message BackupSnsMessage, matchString string) (bool, error) {
 	return regexp.MatchString(matchString, message.BackedUpResourceArn)
 }
 
-func parseSnsInput(snsInput Input) (BackupSnsMessage, error) {
+func parseSnsInput(snsInput events.SNSEvent) (BackupSnsMessage, error) {
 
 	record := snsInput.Records[0]
 	snsMessage := record.SNS.Message
-
-	b, err := json.MarshalIndent(snsInput.Records, "", "  ")
-	if err != nil {
-		return BackupSnsMessage{}, err
-	}
-	fmt.Printf("SNSEntity: %v\n", string(b))
 
 	// Sample Message:
 	//  "An AWS Backup job was completed successfully. Recovery point ARN: arn:aws:dynamodb:us-east-1:637093487455:table/MyDynamoDBTable/backup/01568804569000-d3306d76. Backed up Resource ARN : arn:aws:dynamodb:us-east-1:637093487455:table/MyDynamoDBTable. Backup Job Id : 5a772b5a-36d5-4a69-9b18-ed2f5213c659"
