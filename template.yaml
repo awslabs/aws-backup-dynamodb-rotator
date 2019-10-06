@@ -17,7 +17,7 @@ Metadata:
     ReadmeUrl: README.md
     Labels: ['Backup', 'Restore', 'DynamoDB', 'Rotator', 'Disaster', 'Recovery', 'DR', 'BC', 'Operations', 'Automation']
     HomePageUrl: https://github.com/awslabs/aws-backup-dynamodb-rotator
-    SemanticVersion: 0.1.2
+    SemanticVersion: 0.1.3
     SourceCodeUrl: https://github.com/awslabs/aws-backup-dynamodb-rotator
 
 # More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
@@ -32,18 +32,18 @@ Parameters:
     Type: String
     Description: The ARN of an SNS topic to subscribe to for AWS Backup events.
     AllowedPattern: "^arn:aws:sns:[a-zA-Z0-9_.-]+:[0-9]{12}:[a-zA-Z0-9_.-]+"
-    ConstraintDescription: The BackupSNSTopicARN parameter is required and must be a properly formed ARN.
+    ConstraintDescription: The BackupSNSTopicARN parameter must be a properly formed ARN.
   SourcePattern:
     Type: String
     Description: A regular expression matching the table name to be restored.
     Default: "(?i)-production$"
-    AllowedPattern: "^\S+$"
+    AllowedPattern: ^\S+$
     ConstraintDescription: The SourcePattern parameter may not be an empty string.
   ReplacementPattern:
     Type: String
     Description: A replacement expression used to name the restored table.
     Default: "-staging"
-    AllowedPattern: "^\S+$"
+    AllowedPattern: ^\S+$
     ConstraintDescription: The ReplacementPattern parameter may not be an empty string.
   SSMParameterName:
     Type: String
