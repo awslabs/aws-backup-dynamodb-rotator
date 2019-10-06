@@ -1,6 +1,32 @@
 # AWS Backup DynamoDB Rotator
 
+- [AWS Backup DynamoDB Rotator](#aws-backup-dynamodb-rotator)
+- [Pre-Requisites](#pre-requisites)
+- [Parameters](#parameters)
+- [How it Works](#how-it-works)
+  - [AWS Step Functions State Machine](#aws-step-functions-state-machine)
+
 The AWS Backup DynamoDB Rotator ("the app") restores [Amazon DynamoDB][dynamodb-home] backups to a new timestamped table based on patterns you specify. The app subscribes to an existing [Amazon Simple Notification Service (SNS)][sns-home] topic where [AWS Backup][backup-home] publishes its event notifications. When a BACKUP_JOB_COMPLETE event is received for a DynamoDB table matching a pattern you specify, an [AWS Step Functions][step-functions-home] state machine execution begins that restores the backup to a new table. Optionally, once the restore is complete, an [AWS Systems Manager (SSM)][ssm-home] parameter that you specify is updated with the ARN of the newly-restored table.
+
+```bash
+.
+├── README.MD                       <-- This README file
+├── screenshots                     <-- Screenshots
+└── src                             <-- source directory for the AWS Lambda functions
+│   └── check-restore-status        <-- dir for the CheckRestoreStatus Lambda Function
+│   │   └── main.go                 <-- Lambda function, checks the status of the restored DynamoDB table
+│   └── restore-backup              <-- dir for the RestoreBackup Lambda Function
+│   │   └── main.go                 <-- Lambda function, initiates the restore of the backed up DynamoDB table
+│   └── start-workflow              <-- dir for the StartWorkflow Lambda Function
+│   │   └── main.go                 <-- Lambda function, initiates the Step Functions state machine if required
+│   └── update-ssm-parameter        <-- dir for the UpdateSSMParameter Lambda Function
+│   │   └── main.go                 <-- Lambda function, updates the SSM Parameter if provided
+├── Makefile                        <-- Makefile with commands for building the Lambda functions
+├── template.yaml                   <-- SAM template
+├── CODE_OF_CONDUCT.md              <-- Code of Conduct for contributors to this repository
+├── CONTRIBUTING.md                 <-- Guidelines for submitting changes to this repository
+├── LICENSE                         <-- Apache-2.0 license file
+```
 
 ## Pre-Requisites
 
@@ -19,6 +45,8 @@ The app requires the following AWS resources to exist before installation:
 1. `SSMParameterName` - [Optional] The name and path of an AWS Systems Manager (SSM) Parameter Store parameter to be created or updated with the ARN of the newly restored database, e.g., `/service/staging-database-arn` (without the double quotes). This is useful for automating reporting, staging, and test database rollover. This parameter is optional, and if no value is provided no parameter will be created or updated.
 
 ## How it Works
+
+![AWS Step Functions State Machine Workflow Depiction](screenshots/state-machine.png)
 
 The app subscribes to an existing SNS topic where AWS Backup publishes its event notifications. When a BACKUP_JOB_COMPLETE event is received for a DynamoDB table matching a pattern you specify, an AWS Step Functions state machine execution begins that restores the backup to a new table.
 
@@ -67,6 +95,11 @@ Each Lambda function adds its return values to the state in the state machine. O
 ```
 
 Once completed, we have a newly restored copy of our backup named to match the time the backup was started.
+
+![AWS Console view of original and restored DynamoDB tables](screenshots/restored-table.png)
+
+Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+SPDX-License-Identifier: Apache-2.0
 
 [backup-home]: https://aws.amazon.com/backup/
 [backup-sns-guide]: https://docs.aws.amazon.com/en_pv/aws-backup/latest/devguide/sns-notifications.html
