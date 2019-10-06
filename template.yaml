@@ -30,20 +30,25 @@ Globals:
 Parameters:
   BackupSNSTopicARN:
     Type: String
-    Description: The ARN for a previously existing SNS topic to which AWS Backup publishes its notifications. The Step Function will subscribe to this topic and begin execution when a "BACKUP_JOB_COMPLETED" notification is published.
+    Description: The ARN of an SNS topic to subscribe to for AWS Backup events.
     AllowedPattern: "^arn:aws:sns:[a-zA-Z0-9_.-]+:[0-9]{12}:[a-zA-Z0-9_.-]+"
+    ConstraintDescription: The BackupSNSTopicARN parameter is required and must be a properly formed ARN.
   SourcePattern:
     Type: String
-    Description: A regular expression matching the table name - not full ARN - of resources to be restored, e.g., "(?i)-production$" (without the double quotes) for all DynamoDB tables ending with "-production" (case insensitive). If no expression is provided, all DynamoDB tables will be restored. Currently only DynamoDB tables are supported.
-    Default: ".*"
+    Description: A regular expression matching the table name to be restored.
+    Default: "(?i)-production$"
+    AllowedPattern: "^\S+$"
+    ConstraintDescription: The SourcePattern parameter may not be an empty string.
   ReplacementPattern:
     Type: String
-    Description: A replacement expression used to name the restored resource given in the format, e.g., "-staging" (without the double quotes) to replace the given SourcePatternParameter with "-staging" in the newly restored instance. A date time stamp of the format "-20060102-15-04-05" (-YYYYMMDD-HH-mm-ss) will be appended to the replacement name in all cases. If no expression is provided, the restored resource will bear the name of the original resource with the date time stamp appended, i.e., use "$0" as the replacement expression.
-    Default: "$0"
+    Description: A replacement expression used to name the restored table.
+    Default: "-staging"
+    AllowedPattern: "^\S+$"
+    ConstraintDescription: The ReplacementPattern parameter may not be an empty string.
   SSMParameterName:
     Type: String
-    Description: The name and path of an AWS Systems Manager (SSM) Parameter Store parameter to be created or updated with the ARN of the newly restored database, e.g., "/service/staging-database-arn" (without the double quotes). This is useful for automating reporting, staging, and test database rollover. This parameter is optional, and if no value is provided no parameter will be created or updated.
-    Default: ""
+    Description: The name and path of an SSM parameter to be created or updated.
+    Default: "/staging/database-arn"
 
 Resources:
   AWSBackupSNSSubscription:

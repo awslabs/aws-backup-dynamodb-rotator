@@ -19,7 +19,7 @@ bin/
 packaged.yaml
 
 # Specific events, as these tend to include account numbers
-events/*.json
+events
 
 # macOS specific files
 .DS_Store
