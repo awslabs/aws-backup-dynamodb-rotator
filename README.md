@@ -6,7 +6,9 @@
 - [How it Works](#how-it-works)
   - [AWS Step Functions State Machine](#aws-step-functions-state-machine)
 
-The AWS Backup DynamoDB Rotator ("the app") restores [Amazon DynamoDB][dynamodb-home] backups to a new timestamped table based on patterns you specify. The app subscribes to an existing [Amazon Simple Notification Service (SNS)][sns-home] topic where [AWS Backup][backup-home] publishes its event notifications. When a BACKUP_JOB_COMPLETE event is received for a DynamoDB table matching a pattern you specify, an [AWS Step Functions][step-functions-home] state machine execution begins that restores the backup to a new table. Optionally, once the restore is complete, an [AWS Systems Manager (SSM)][ssm-home] parameter that you specify is updated with the ARN of the newly-restored table.
+The AWS Backup DynamoDB Rotator ("the app") restores an [Amazon DynamoDB][dynamodb-home] backup to a new timestamped table, allowing you to test your backups and populate reporting, staging, or development environments.
+
+The app subscribes to an [Amazon Simple Notification Service (SNS)][sns-home] topic and listens for messages from AWS Backup. When a `BACKUP_JOB_COMPLETE` event is received, an [AWS Step Functions][step-functions-home] state machine execution begins that restores the backup to a new table. Optionally, once the restore is complete, an [AWS Systems Manager (SSM)][ssm-home] parameter is updated with the ARN of the newly-restored table.
 
 Important: this application uses various AWS services and there are costs associated with these services after the Free Tier usage - please see the [AWS  pricing page](https://aws.amazon.com/pricing/) for details.
 
@@ -35,9 +37,9 @@ Important: this application uses various AWS services and there are costs associ
 The app requires the following AWS resources to exist before installation:
 
 1. An AWS Backup vault [configured to send notification events to SNS][backup-sns-guide].
-1. An SNS topic that receives notifications from the Backup vault.
+1. An SNS topic [configured to allow notifications from the Backup vault][sns-backup-config].
 1. One or more DynamoDB tables configured in Backup that you wish to restore on a recurring basis.
-1. A scheduled Backup job in the Backup vault that backs up the DynamoDB tables you wish to restore.
+1. An AWS Backup job in the Backup vault that backs up the DynamoDB tables you wish to restore.
 
 ## Parameters
 
@@ -109,6 +111,7 @@ SPDX-License-Identifier: Apache-2.0
 [backup-home]: https://aws.amazon.com/backup/
 [backup-sns-guide]: https://docs.aws.amazon.com/en_pv/aws-backup/latest/devguide/sns-notifications.html
 [dynamodb-home]: https://aws.amazon.com/dynamodb/
+[sns-backup-config]: https://docs.aws.amazon.com/en_pv/aws-backup/latest/devguide/sns-notifications.html#specifying-aws-backup-as-a-service-principal
 [sns-home]: https://aws.amazon.com/sns/
 [ssm-home]: https://aws.amazon.com/systems-manager/
 [step-functions-home]: https://aws.amazon.com/step-functions/
