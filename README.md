@@ -44,7 +44,8 @@ The app requires the following AWS resources to exist before installation:
    ```bash
    aws backup put-backup-vault-notifications \
      --backup-vault-name Default \
-     --sns-topic-arn "arn:aws:sns:{AWS_REGION}:{AWS_ACCOUNT}:{SNS_TOPIC}" \  --backup-vault-events BACKUP_JOB_COMPLETED
+     --sns-topic-arn "arn:aws:sns:{AWS_REGION}:{AWS_ACCOUNT}:{SNS_TOPIC}" \
+     --backup-vault-events BACKUP_JOB_COMPLETED
    ```
 
 1. An SNS topic [configured to allow notifications from the Backup vault][sns-backup-config]. Include the following JSON in the access policy of the Amazon SNS topic that you use to track AWS Backup events. You must specify the ARN of your topic.
