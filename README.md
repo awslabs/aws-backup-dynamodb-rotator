@@ -93,8 +93,8 @@ To get the AWS Backup DynamoDB Rotator up and running in your own AWS account, f
 
 To tear down your application and remove all resources associated with the AWS Backup DynamoDB Rotator, follow these steps:
 
-1. Log into the [Amazon CloudFormation Console][cloudformation-console] and find the stack you created for the demo app
-1. Delete the stack
+1. Log into the [Amazon CloudFormation Console][cloudformation-console] and find the stack you created for the demo app.
+1. Delete the stack.
 
 *Remember to shut down/remove all related resources once you are finished to avoid ongoing charges to your AWS account.*
 
