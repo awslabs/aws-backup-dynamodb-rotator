@@ -155,7 +155,7 @@ Once completed, we have a newly restored copy of our backup named to match the t
 Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 SPDX-License-Identifier: Apache-2.0
 
-[aws-backup-dynamodb-rotator]: https://console.aws.amazon.com/lambda/home#/create/app?applicationId=arn:aws:serverlessrepo::637093487455:applications/AWS-Backup-DynamoDB-Rotator
+[aws-backup-dynamodb-rotator]: https://console.aws.amazon.com/lambda/home#/create/app?applicationId=arn:aws:serverlessrepo:us-east-1:637093487455:applications/AWS-Backup-DynamoDB-Rotator
 [backup-home]: https://aws.amazon.com/backup/
 [backup-sns-guide]: https://docs.aws.amazon.com/en_pv/aws-backup/latest/devguide/sns-notifications.html
 [cloudformation-console]: https://console.aws.amazon.com/cloudformation/home
