@@ -3,6 +3,7 @@
 - [AWS Backup DynamoDB Rotator](#aws-backup-dynamodb-rotator)
 - [Pre-Requisites](#pre-requisites)
 - [Parameters](#parameters)
+- [Instructions](#instructions)
 - [How it Works](#how-it-works)
   - [AWS Step Functions State Machine](#aws-step-functions-state-machine)
 
@@ -37,19 +38,64 @@ Important: this application uses various AWS services and there are costs associ
 The app requires the following AWS resources to exist before installation:
 
 1. An AWS Backup vault [configured to send notification events to SNS][backup-sns-guide].
-1. An SNS topic [configured to allow notifications from the Backup vault][sns-backup-config].
+
+   If you are using the *Default* vault:
+
+   ```bash
+   aws backup put-backup-vault-notifications \
+     --backup-vault-name Default \
+     --sns-topic-arn "arn:aws:sns:{AWS_REGION}:{AWS_ACCOUNT}:{SNS_TOPIC}" \  --backup-vault-events BACKUP_JOB_COMPLETED
+   ```
+
+1. An SNS topic [configured to allow notifications from the Backup vault][sns-backup-config]. Include the following JSON in the access policy of the Amazon SNS topic that you use to track AWS Backup events. You must specify the ARN of your topic.
+
+   ```json
+   {
+       "Sid": "My-statement-id",
+       "Effect": "Allow",
+       "Principal": {
+           "Service": "backup.amazonaws.com"
+       },
+       "Action": "SNS:Publish",
+       "Resource": "arn:aws:sns:{AWS_REGION}:{AWS_ACCOUNT}:{SNS_TOPIC}"
+   }
+   ```
+
 1. One or more DynamoDB tables configured in Backup that you wish to restore on a recurring basis.
+
 1. An AWS Backup job in the Backup vault that backs up the DynamoDB tables you wish to restore.
 
 ## Parameters
 
 1. `BackupSNSTopicARN` - [Required] The ARN for a previously existing SNS topic to which AWS Backup publishes its notifications. The Step Function will subscribe to this topic and begin execution when a `BACKUP_JOB_COMPLETED` notification is published.
 
-1. `SourcePattern` - [Required] A regular expression matching the table name - not full ARN - of resources to be restored, e.g., `(?i)-production$` for all DynamoDB tables ending with `-production` (case insensitive). To match and restore all DynamoDB tables, use the expression `.*`.
+1. `SourcePattern` - [Required] A regular expression matching the table name - not full ARN - of resources to be restored, e.g., `(?i)-production$` for all DynamoDB tables ending with `-production` (case insensitive). To match and restore all DynamoDB tables, use the expression `.*`
 
 1. `ReplacementPattern` - [Required] A replacement expression used to name the restored resource given in the format, e.g., `-staging` to replace the given SourcePatternParameter with `-staging` in the newly restored instance. A date time stamp of the format `-20060102-15-04-05 (-YYYYMMDD-HH-mm-ss)` will be appended to the replacement name in all cases. To use the original name of the restored resource with the date time stamp appended, use `$0` as the replacement expression.
 
 1. `SSMParameterName` - [Optional] The name and path of an AWS Systems Manager (SSM) Parameter Store parameter to be created or updated with the ARN of the newly restored database, e.g., `/staging/database-arn`. This is useful for automating reporting, staging, and test database rollover. This parameter is optional, and if no value is provided no parameter will be created or updated.
+
+## Instructions
+
+***IMPORTANT NOTE:** Creating this application in your AWS account will create and consume AWS resources, which **will cost money**.  Be sure to shut down/remove all resources once you are finished to avoid ongoing charges to your AWS account (see instructions on cleaning up/tear down below).*
+
+### Getting started
+
+To get the AWS Backup DynamoDB Rotator up and running in your own AWS account, follow these steps (if you do not have an AWS account, please see [How do I create and activate a new Amazon Web Services account?](https://aws.amazon.com/premiumsupport/knowledge-center/create-and-activate-aws-account/)):
+
+1. Go to the [AWS Backup DynamoDB Rotator][aws-backup-dynamodb-rotator] page in the AWS Console. *Note: If you are logged in as an IAM user, ensure your account has permissions to create and manage the necessary resources and components for this application.* 
+1. Under the *Application Settings* section, enter values for each of the [parameters](#parameters) as described above.
+1. Ensure that the checkbox next to *I acknowledge that this app creates custom IAM roles and resource policies.* is selected.
+1. In the bottom right, choose *Deploy*. SAR deploys the app into your AWS account.
+
+### Cleaning up
+
+To tear down your application and remove all resources associated with the AWS Backup DynamoDB Rotator, follow these steps:
+
+1. Log into the [Amazon CloudFormation Console][cloudformation-console] and find the stack you created for the demo app
+1. Delete the stack
+
+*Remember to shut down/remove all related resources once you are finished to avoid ongoing charges to your AWS account.*
 
 ## How it Works
 
@@ -108,9 +154,12 @@ Once completed, we have a newly restored copy of our backup named to match the t
 Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 SPDX-License-Identifier: Apache-2.0
 
+[aws-backup-dynamodb-rotator]: https://console.aws.amazon.com/lambda/home#/create/app?applicationId=arn:aws:serverlessrepo::637093487455:applications/AWS-Backup-DynamoDB-Rotator
 [backup-home]: https://aws.amazon.com/backup/
 [backup-sns-guide]: https://docs.aws.amazon.com/en_pv/aws-backup/latest/devguide/sns-notifications.html
+[cloudformation-console]: https://console.aws.amazon.com/cloudformation/home
 [dynamodb-home]: https://aws.amazon.com/dynamodb/
+[serverless-application-repository]: https://console.aws.amazon.com/serverlessrepo/home
 [sns-backup-config]: https://docs.aws.amazon.com/en_pv/aws-backup/latest/devguide/sns-notifications.html#specifying-aws-backup-as-a-service-principal
 [sns-home]: https://aws.amazon.com/sns/
 [ssm-home]: https://aws.amazon.com/systems-manager/
