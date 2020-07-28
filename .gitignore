@@ -23,3 +23,7 @@ events
 
 # macOS specific files
 .DS_Store
+
+# AWS SAM CLI files
+.aws-sam/
+samconfig.toml

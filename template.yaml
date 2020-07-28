@@ -17,7 +17,7 @@ Metadata:
     ReadmeUrl: README.md
     Labels: ['Backup', 'Restore', 'DynamoDB', 'Rotator', 'Disaster', 'Recovery', 'DR', 'BC', 'Operations', 'Automation']
     HomePageUrl: https://github.com/awslabs/aws-backup-dynamodb-rotator
-    SemanticVersion: 0.1.3
+    SemanticVersion: 0.2.0
     SourceCodeUrl: https://github.com/awslabs/aws-backup-dynamodb-rotator
 
 # More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
@@ -83,7 +83,8 @@ Resources:
   StartStateMachineFunction:
     Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
     Properties:
-      CodeUri: ./bin/start-workflow/
+      CodeUri: functions/start-workflow/
+      Handler: start-workflow
       Environment:
         Variables:
           STATE_MACHINE_ARN:
@@ -94,110 +95,39 @@ Resources:
             Ref: ReplacementPattern
           SSM_PARAMETER_NAME:
             Ref: SSMParameterName
-      Handler: start-workflow
-      Role:
-        !GetAtt StartStateMachineFunctionRole.Arn
+      Policies:
+        - StepFunctionsExecutionPolicy:
+            StateMachineName: !GetAtt DynamoDBCloneRotator.Name
 
   DynamoDBCloneRotator:
-    Type: AWS::StepFunctions::StateMachine
+    Type: AWS::Serverless::StateMachine
     Properties:
-      DefinitionString:
-        !Sub
-          - |-
-            {
-              "Comment": "The DynamoDB Clone Rotator creates a DynamoDB table from a backup created by AWS Backup.",
-              "StartAt": "Restore Backup",
-              "States": {
-                "Restore Backup": {
-                  "Type": "Task",
-                  "Resource": "${restoreBackupArn}",
-                  "ResultPath": "$.RestoreTableFromBackupOutput",
-                  "Next": "SSM Parameter Provided ?"
-                },
-                "SSM Parameter Provided ?": {
-                  "Type": "Choice",
-                  "Choices": [
-                    {
-                      "Not": {
-                        "Variable": "$.SSMParameterName",
-                        "StringEquals": ""
-                      },
-                      "Next": "Wait for Restore"
-                    }
-                  ],
-                  "Default": "Complete"
-                },
-                "Wait for Restore": {
-                  "Type": "Wait",
-                  "Seconds": 60,
-                  "Next": "Check Restore Status"
-                },
-                "Check Restore Status": {
-                  "Type": "Task",
-                  "Resource": "${checkRestoreStatusArn}",
-                  "InputPath": "$.RestoreTableFromBackupOutput",
-                  "ResultPath": "$.DescribeTableOutput",
-                  "Next": "Restore Complete?"
-                },
-                "Restore Complete?": {
-                  "Type": "Choice",
-                  "Choices": [
-                    {
-                      "Variable": "$.DescribeTableOutput.Table.TableStatus",
-                      "StringEquals": "ACTIVE",
-                      "Next": "Update SSM Parameter"
-                    },
-                    {
-                      "Or": [
-                        {
-                          "Variable": "$.DescribeTableOutput.Table.TableStatus",
-                          "StringEquals": "CREATING"
-                        },
-                        {
-                          "Variable": "$.DescribeTableOutput.Table.TableStatus",
-                          "StringEquals": "UPDATING"
-                        }
-                      ],
-                      "Next": "Wait for Restore"
-                    }
-                  ],
-                  "Default": "Error"
-                },
-                "Update SSM Parameter": {
-                  "Type": "Task",
-                  "Resource": "${updateSSMParameterArn}",
-                  "ResultPath": "$.UpdateSSMParameterOutput",
-                  "Next": "Complete"
-                },
-                "Complete": {
-                  "Type": "Succeed"
-                },
-                "Error": {
-                  "Type": "Fail"
-                }
-              }
-            }
-          - {
-              checkRestoreStatusArn: !GetAtt CheckRestoreStatusFunction.Arn,
-              restoreBackupArn: !GetAtt RestoreBackupFunction.Arn,
-              updateSSMParameterArn: !GetAtt UpdateSSMParameterFunction.Arn
-            }
-      RoleArn:
-        !GetAtt StatesExecutionRole.Arn
-      StateMachineName: DynamoDBCloneRotator
+      DefinitionUri: statemachine/restore-backup.asl.json
+      DefinitionSubstitutions:
+        checkRestoreStatusArn: !GetAtt CheckRestoreStatusFunction.Arn
+        restoreBackupArn: !GetAtt RestoreBackupFunction.Arn
+        updateSSMParameterArn: !GetAtt UpdateSSMParameterFunction.Arn
+      Policies:
+        - LambdaInvokePolicy:
+            FunctionName: !Ref CheckRestoreStatusFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref RestoreBackupFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref UpdateSSMParameterFunction
   
   CheckRestoreStatusFunction:
     Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
     Properties:
-      CodeUri: ./bin/check-restore-status/
+      CodeUri: functions/check-restore-status/
       Handler: check-restore-status
-      Role:
-        !GetAtt CheckRestoreStatusFunctionRole.Arn
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: "*"
 
   RestoreBackupFunction:
     Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
     Properties:
-      CodeUri: ./bin/restore-backup/
+      CodeUri: functions/restore-backup/
       Handler: restore-backup
       Role:
         !GetAtt RestoreBackupFunctionRole.Arn
@@ -205,89 +135,12 @@ Resources:
   UpdateSSMParameterFunction:
     Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
     Properties:
-      CodeUri: ./bin/update-ssm-parameter/
+      CodeUri: functions/update-ssm-parameter/
       Handler: update-ssm-parameter
       Role:
         !GetAtt UpdateSSMParameterFunctionRole.Arn
 
 # IAM Roles
-  StartStateMachineFunctionRole:
-    Type: "AWS::IAM::Role"
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: "Allow"
-            Principal:
-              Service:
-                - !Sub lambda.amazonaws.com
-            Action: "sts:AssumeRole"
-      Path: "/"
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/AWSXrayWriteOnlyAccess
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-      Policies:
-        - PolicyName: StartStateMachineFunctionExecutionPolicy
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - "states:StartExecution"
-                Resource:
-                  - Ref: DynamoDBCloneRotator
-
-  StatesExecutionRole:
-    Type: "AWS::IAM::Role"
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: "Allow"
-            Principal:
-              Service:
-                - !Sub states.${AWS::Region}.amazonaws.com
-            Action: "sts:AssumeRole"
-      Path: "/"
-      Policies:
-        - PolicyName: DynamoDBCloneRotatorStatesExecutionPolicy
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - "lambda:InvokeFunction"
-                Resource: 
-                  - !GetAtt CheckRestoreStatusFunction.Arn
-                  - !GetAtt RestoreBackupFunction.Arn
-                  - !GetAtt UpdateSSMParameterFunction.Arn
-  
-  CheckRestoreStatusFunctionRole:
-    Type: "AWS::IAM::Role"
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: "Allow"
-            Principal:
-              Service:
-                - !Sub lambda.amazonaws.com
-            Action: "sts:AssumeRole"
-      Path: "/"
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/AWSXrayWriteOnlyAccess
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-      Policies:
-        - PolicyName: CheckRestoreStatusFunctionExecutionPolicy
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - "dynamodb:DescribeTable"
-                Resource:
-                  - "*"
-
   RestoreBackupFunctionRole:
     Type: "AWS::IAM::Role"
     Properties:

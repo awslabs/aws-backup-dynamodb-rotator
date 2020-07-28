@@ -1,0 +1,73 @@
+{
+  "Comment": "The DynamoDB Clone Rotator creates a DynamoDB table from a backup created by AWS Backup.",
+  "StartAt": "Restore Backup",
+  "States": {
+    "Restore Backup": {
+      "Type": "Task",
+      "Resource": "${restoreBackupArn}",
+      "ResultPath": "$.RestoreTableFromBackupOutput",
+      "Next": "SSM Parameter Provided ?"
+    },
+    "SSM Parameter Provided ?": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Not": {
+            "Variable": "$.SSMParameterName",
+            "StringEquals": ""
+          },
+          "Next": "Wait for Restore"
+        }
+      ],
+      "Default": "Complete"
+    },
+    "Wait for Restore": {
+      "Type": "Wait",
+      "Seconds": 60,
+      "Next": "Check Restore Status"
+    },
+    "Check Restore Status": {
+      "Type": "Task",
+      "Resource": "${checkRestoreStatusArn}",
+      "InputPath": "$.RestoreTableFromBackupOutput",
+      "ResultPath": "$.DescribeTableOutput",
+      "Next": "Restore Complete?"
+    },
+    "Restore Complete?": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.DescribeTableOutput.Table.TableStatus",
+          "StringEquals": "ACTIVE",
+          "Next": "Update SSM Parameter"
+        },
+        {
+          "Or": [
+            {
+              "Variable": "$.DescribeTableOutput.Table.TableStatus",
+              "StringEquals": "CREATING"
+            },
+            {
+              "Variable": "$.DescribeTableOutput.Table.TableStatus",
+              "StringEquals": "UPDATING"
+            }
+          ],
+          "Next": "Wait for Restore"
+        }
+      ],
+      "Default": "Error"
+    },
+    "Update SSM Parameter": {
+      "Type": "Task",
+      "Resource": "${updateSSMParameterArn}",
+      "ResultPath": "$.UpdateSSMParameterOutput",
+      "Next": "Complete"
+    },
+    "Complete": {
+      "Type": "Succeed"
+    },
+    "Error": {
+      "Type": "Fail"
+    }
+  }
+}

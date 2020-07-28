@@ -62,7 +62,7 @@ The app requires the following AWS resources to exist before installation:
    }
    ```
 
-1. One or more DynamoDB tables configured in Backup that you wish to restore on a recurring basis.
+1. One or more DynamoDB tables configured in Backup that you wish to restore regularly.
 
 1. An AWS Backup job in the Backup vault that backs up the DynamoDB tables you wish to restore.
 
@@ -152,7 +152,7 @@ Once completed, we have a newly restored copy of our backup named to match the t
 
 ![AWS Console view of original and restored DynamoDB tables](screenshots/restored-table.png)
 
-Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 SPDX-License-Identifier: Apache-2.0
 
 [aws-backup-dynamodb-rotator]: https://console.aws.amazon.com/lambda/home#/create/app?applicationId=arn:aws:serverlessrepo:us-east-1:637093487455:applications/AWS-Backup-DynamoDB-Rotator
